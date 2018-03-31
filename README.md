@@ -9,12 +9,12 @@ Both the generator and discriminator comprise 2 hidden layers with 128 nodes eac
 
 The output video should show the generator output (blue) moving towards the original prior (green). The discriminator output (red) should also go lower in the generator distribution and higher in the original prior distribution.
 
-![alt text](https://raw.githubusercontent.com/greentfrapp/simple-gan-demo/master/images/start.png "Start of training")
+<img src="https://raw.githubusercontent.com/greentfrapp/simple-gan-demo/master/images/start.png" alt="Start of training" width="500px" height="whatever">
 
 *Video cap at the start of the training. Generator output is far from original prior.*
 
 Eventually, the generator output distribution should match the original prior distribution.
 
-![alt text](https://raw.githubusercontent.com/greentfrapp/simple-gan-demo/master/images/end.png "End of training")
+<img src="https://raw.githubusercontent.com/greentfrapp/simple-gan-demo/master/images/end.png" alt="End of training" width="500px" height="whatever">
 
 *Video cap at the end of the training. Generator output matches original prior.*
