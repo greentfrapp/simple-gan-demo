@@ -126,13 +126,13 @@ class GANDemo(object):
 		d_loss, g_loss, summary = self.sess.run([self.discriminator_loss, self.generator_loss, self.summary_op], feed_dict={self.input:batch_x, self.real_prior:z_real_dist})
 		return (d_loss, g_loss, summary)
 
-	def print_log(self, epoch, d_loss, g_loss):
-		entry = "{}: Epoch #{}\n\tDiscriminator Loss - {}\n\tGenerator Loss - {}".format(datetime.datetime.now(), epoch, d_loss, g_loss)
+	def print_log(self, step, d_loss, g_loss):
+		entry = "{}: Step #{}\n\tDiscriminator Loss - {}\n\tGenerator Loss - {}".format(datetime.datetime.now(), step, d_loss, g_loss)
 		print(entry)
 		with open(self.log_path + '/log.txt', 'a') as log:
 			log.write(entry)
 
-	def train(self, n_epochs=50):
+	def train(self, n_steps=300):
 
 		id_no = time.strftime('%Y%m%d_%H%M%S', datetime.datetime.now().timetuple())
 
@@ -140,7 +140,7 @@ class GANDemo(object):
 		self.results_path = 'results'
 		tf.gfile.MakeDirs(self.results_path)
 
-		self.n_epochs = n_epochs
+		self.n_steps = n_steps
 
 		self.step = 0
 		self.tensorboard_path, self.saved_model_path, self.log_path = self.create_checkpoint_folders(id_no)
@@ -162,47 +162,45 @@ class GANDemo(object):
 		video_path = "{}_gan_demo.mp4".format(id_no)
 
 		with writer.saving(fig, video_path, 300):
-			for epoch in range(1, self.n_epochs + 1):
-				n_batches = 5
+			for i in range(1, self.n_steps + 1):
 
-				for batch in range(n_batches):
+				# Sample latent space and real prior
+				batch_x = self.sample_latent(self.batch_size)
+				z_real_dist = self.sample_prior(self.batch_size)
 
-					# Sample latent space and real prior
-					batch_x = self.sample_latent(self.batch_size)
-					z_real_dist = self.sample_prior(self.batch_size)
+				# Get outputs from generator and discriminator
+				fake_prior = self.sess.run(self.fake_prior, feed_dict={self.input: batch_x})
+				scores = self.sess.run(self.output_scores, feed_dict={self.real_prior: np.expand_dims(np.arange(min_x, max_x, 0.01001), axis=1)})
 
-					# Get outputs from generator and discriminator
-					fake_prior = self.sess.run(self.fake_prior, feed_dict={self.input: batch_x})
-					scores = self.sess.run(self.output_scores, feed_dict={self.real_prior: np.expand_dims(np.arange(min_x, max_x, 0.01001), axis=1)})
+				# Plot distributions of outputs for video
+				bins = np.linspace(min_x, max_x, 50)
+				
+				fake_prior_y, fake_prior_binedges = np.histogram(fake_prior, bins=bins)
+				fake_prior_bincenters = 0.5 * (fake_prior_binedges[1:] + fake_prior_binedges[:-1])
+				fake_prior_y = fake_prior_y / float(max(fake_prior_y))
+				
+				prior_y, prior_binedges = np.histogram(z_real_dist, bins=bins)
+				prior_bincenters = 0.5 * (prior_binedges[1:] + prior_binedges[:-1])
+				prior_y = prior_y / float(max(prior_y))
+				
+				g_dist.set_data(bins[1:], fake_prior_y)
+				prior_dist.set_data(bins[1:], prior_y)
+				d_dist.set_data(np.arange(min_x, max_x, 0.01001), scores)
+				
+				writer.grab_frame()
+				
+				# Optimizer ops
+				self.sess.run(self.discriminator_optimizer, feed_dict={self.input: batch_x, self.real_prior: z_real_dist})
+				self.sess.run(self.generator_optimizer, feed_dict={self.input: batch_x})
 
-					# Plot distributions of outputs for video
-					bins = np.linspace(min_x, max_x, 50)
-					
-					fake_prior_y, fake_prior_binedges = np.histogram(fake_prior, bins=bins)
-					fake_prior_bincenters = 0.5 * (fake_prior_binedges[1:] + fake_prior_binedges[:-1])
-					fake_prior_y = fake_prior_y / float(max(fake_prior_y))
-					
-					prior_y, prior_binedges = np.histogram(z_real_dist, bins=bins)
-					prior_bincenters = 0.5 * (prior_binedges[1:] + prior_binedges[:-1])
-					prior_y = prior_y / float(max(prior_y))
-					
-					g_dist.set_data(bins[1:], fake_prior_y)
-					prior_dist.set_data(bins[1:], prior_y)
-					d_dist.set_data(np.arange(min_x, max_x, 0.01001), scores)
-					
-					writer.grab_frame()
-					
-					# Optimizer ops
-					self.sess.run(self.discriminator_optimizer, feed_dict={self.input: batch_x, self.real_prior: z_real_dist})
-					self.sess.run(self.generator_optimizer, feed_dict={self.input: batch_x})
+				self.step += 1
 
-					self.step += 1
-
-				# Print log, write to log.txt, update Tensorboard and save model every epoch
-				d_loss, g_loss, summary = self.get_loss(batch_x, z_real_dist)
-				self.print_log(epoch, d_loss, g_loss)
-				self.writer.add_summary(summary, global_step=self.step)
-				self.saver.save(self.sess, save_path=self.saved_model_path, global_step=self.step)
+				# Print log, write to log.txt, update Tensorboard and save model every 5 steps
+				if self.step % 5 == 0:
+					d_loss, g_loss, summary = self.get_loss(batch_x, z_real_dist)
+					self.print_log(self.step, d_loss, g_loss)
+					self.writer.add_summary(summary, global_step=self.step)
+					self.saver.save(self.sess, save_path=self.saved_model_path, global_step=self.step)
 
 		print("Model Trained!")
 		print("Tensorboard Path: {}".format(self.tensorboard_path))
