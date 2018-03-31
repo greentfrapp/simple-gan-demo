@@ -12,6 +12,7 @@ import tensorflow as tf
 import numpy as np
 import os
 import datetime
+import time
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from scipy.interpolate import UnivariateSpline
@@ -41,7 +42,7 @@ class DenseNetwork(object):
 					name=layer["name"])
 			return tensor
 
-class GAN(object):
+class GANDemo(object):
 	def __init__(self, batch_size=1000):
 
 		self.batch_size = batch_size
@@ -86,12 +87,12 @@ class GAN(object):
 		self.discriminator_variables = [var for var in all_variables if 'discriminator' in var.name]
 		self.discriminator_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.discriminator_loss, var_list=self.discriminator_variables)
 		self.generator_variables = [var for var in all_variables if 'generator' in var.name]
-		self.generator_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.generator_loss, var_list=self.generator_variables)
+		self.generator_optimizer = tf.train.AdamOptimizer(learning_rate=0.01).minimize(self.generator_loss, var_list=self.generator_variables)
 
 		# Things to save in Tensorboard
 		tf.summary.scalar(name="Discriminator Loss", tensor=self.discriminator_loss)
 		tf.summary.scalar(name="Generator Loss", tensor=self.generator_loss)
-		tf.summary.histogram(name="Encoder Distribution", values=self.counterfeit)
+		tf.summary.histogram(name="Encoder Distribution", values=self.fake_prior)
 		tf.summary.histogram(name="Real Distribution", values=self.real_prior)
 		self.summary_op = tf.summary.merge_all()
 
@@ -107,111 +108,110 @@ class GAN(object):
 		# Real prior distribution, in this case just a Gaussian
 		return np.random.randn(size, 1)
 
-	def create_checkpoint_folders(self, batch_size, n_epochs):
-		folder_name = "/{0}_{1}_{2}_GAN".format(
-			datetime.datetime.now(),
-			batch_size,
-			n_epochs).replace(':', '-')
-		tensorboard_path = self.results_path + folder_name + '/tensorboard'
-		saved_model_path = self.results_path + folder_name + '/saved_models/'
-		log_path = self.results_path + folder_name + '/log'
-		if not os.path.exists(self.results_path + folder_name):
-			os.mkdir(self.results_path + folder_name)
-			os.mkdir(tensorboard_path)
-			os.mkdir(saved_model_path)
-			os.mkdir(log_path)
-		return tensorboard_path, saved_model_path, log_path
+	def sample_latent(self, size):
+		# Latent vector for input to generator, in this case another Gaussian of different mean and variance
+		return np.random.randn(size, 1) * 2.0 + 1.0
+
+	def create_checkpoint_folders(self, id_no):
+		folder_name = "{}_gan_demo".format(id_no)
+		subfolders = ["tensorboard", "saved_models", "log"]
+		paths = ()
+		for subfolder in subfolders:
+			path = os.path.join(self.results_path, folder_name, subfolder)
+			tf.gfile.MakeDirs(path)
+			paths += (path,)
+		return paths
 
 	def get_loss(self, batch_x, z_real_dist):
 		d_loss, g_loss, summary = self.sess.run([self.discriminator_loss, self.generator_loss, self.summary_op], feed_dict={self.input:batch_x, self.real_prior:z_real_dist})
 		return (d_loss, g_loss, summary)
 
-	def train(self, n_epochs=500):
+	def print_log(self, epoch, d_loss, g_loss):
+		entry = "{}: Epoch #{}\n\tDiscriminator Loss - {}\n\tGenerator Loss - {}".format(datetime.datetime.now(), epoch, d_loss, g_loss)
+		print(entry)
+		with open(self.log_path + '/log.txt', 'a') as log:
+			log.write(entry)
+
+	def train(self, n_epochs=50):
+
+		id_no = time.strftime('%Y%m%d_%H%M%S', datetime.datetime.now().timetuple())
 
 		# Create results_folder
 		self.results_path = 'results'
-		if not os.path.exists(self.results_path):
-			os.mkdir(self.results_path)
+		tf.gfile.MakeDirs(self.results_path)
 
 		self.n_epochs = n_epochs
 
 		self.step = 0
-		self.tensorboard_path, self.saved_model_path, self.log_path = self.create_checkpoint_folders(self.batch_size, self.n_epochs)
+		self.tensorboard_path, self.saved_model_path, self.log_path = self.create_checkpoint_folders(id_no)
 		self.writer = tf.summary.FileWriter(logdir=self.tensorboard_path, graph=self.sess.graph)
 
-		# plotting stuff
+		# Plotting parameters
 		FFMpegWriter = animation.writers['ffmpeg']
 		writer = FFMpegWriter(fps=5)
 		fig = plt.figure()
-		arti_dist, = plt.plot([], [], label="Artificial Distribution")
-		prior_dist, = plt.plot([], [], label="Prior Distribution")
-		score_dist, = plt.plot([], [], label="Discriminator Score")
-		plt.legend(loc=2, frameon=False, fontsize=12)
+		g_dist, = plt.plot([], [], label="Generator Output Distribution")
+		prior_dist, = plt.plot([], [], label="Real Prior Distribution")
+		d_dist, = plt.plot([], [], label="Discriminator Score")
+		#plt.legend(loc=2, frameon=False, fontsize=12)
+		plt.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc=3, ncol=3, mode="expand", borderaxespad=0.)
 		plt.xlim(-5, 5)
 		plt.ylim(-0.1, 1.1)
 
-		with writer.saving(fig, "writer_test.mp4", 300):
-			for epoch in range(1, self.n_epochs + 1):
-				n_batches = 1
-				print("------------------Epoch {}/{}------------------".format(epoch, self.n_epochs))
+		video_path = "{}_gan_demo.mp4".format(id_no)
 
-				for batch in range(1, n_batches + 1):
-					# batch_x = np.random.randn(self.batch_size, 1) * 2.0 + 1.0
-					batch_x = np.random.rand(self.batch_size, 1)
+		with writer.saving(fig, video_path, 300):
+			for epoch in range(1, self.n_epochs + 1):
+				n_batches = 5
+
+				for batch in range(n_batches):
+
+					# Sample latent space and real prior
+					batch_x = self.sample_latent(self.batch_size)
 					z_real_dist = self.sample_prior(self.batch_size)
 
-					#plot_x = np.expand_dims(np.arange(-5, 5, 0.05), axis=1)
-					counterfeit = self.sess.run(self.counterfeit, feed_dict={self.input: batch_x})
+					# Get outputs from generator and discriminator
+					fake_prior = self.sess.run(self.fake_prior, feed_dict={self.input: batch_x})
 					scores = self.sess.run(self.output_scores, feed_dict={self.real_prior: np.expand_dims(np.arange(-5, 5, 0.01001), axis=1)})
 
+					# Plot distributions of outputs for video
 					bins = np.linspace(-5, 5, 50)
-					counterfeit_y, counterfeit_binedges = np.histogram(counterfeit, bins=bins)
-					counterfeit_bincenters = 0.5 * (counterfeit_binedges[1:] + counterfeit_binedges[:-1])
-					counterfeit_y = counterfeit_y / float(max(counterfeit_y))
-					# counterfeit_spline = UnivariateSpline(counterfeit_bincenters, counterfeit_y, s=100)
-					# arti_dist.set_data(counterfeit_bincenters, counterfeit_y)
-					arti_dist.set_data(bins[1:], counterfeit_y)
-					# arti_dist.set_data(counterfeit_bincenters, counterfeit_spline(counterfeit_bincenters))
+					
+					fake_prior_y, fake_prior_binedges = np.histogram(fake_prior, bins=bins)
+					fake_prior_bincenters = 0.5 * (fake_prior_binedges[1:] + fake_prior_binedges[:-1])
+					fake_prior_y = fake_prior_y / float(max(fake_prior_y))
+					
 					prior_y, prior_binedges = np.histogram(z_real_dist, bins=bins)
 					prior_bincenters = 0.5 * (prior_binedges[1:] + prior_binedges[:-1])
 					prior_y = prior_y / float(max(prior_y))
-					# prior_spline = UnivariateSpline(prior_bincenters, prior_y, s=100)
-					# prior_dist.set_data(prior_bincenters, prior_y)
+					
+					g_dist.set_data(bins[1:], fake_prior_y)
 					prior_dist.set_data(bins[1:], prior_y)
-					# prior_dist.set_data(prior_bincenters, prior_spline(prior_bincenters))
-					score_dist.set_data(np.arange(-5, 5, 0.01001), scores)
+					d_dist.set_data(np.arange(-5, 5, 0.01001), scores)
+					
 					writer.grab_frame()
 					
+					# Optimizer ops
 					self.sess.run(self.discriminator_optimizer, feed_dict={self.input: batch_x, self.real_prior: z_real_dist})
 					self.sess.run(self.generator_optimizer, feed_dict={self.input: batch_x})
 
-					# Print log and write to log.txt every 50 batches
-					if batch % 50 == 0:
-						a_loss, d_loss, e_loss, summary = self.get_loss(batch_x, z_real_dist)
-						self.writer.add_summary(summary, global_step=self.step)
-						print("Epoch: {}, iteration: {}".format(epoch, batch))
-						print("Discriminator Loss: {}".format(d_loss))
-						print("Generator Loss: {}".format(g_loss))
-						with open(self.log_path + '/log.txt', 'a') as log:
-							log.write("Epoch: {}, iteration: {}\n".format(epoch, batch))
-							log.write("Discriminator Loss: {}\n".format(d_loss))
-							log.write("Generator Loss: {}\n".format(g_loss))
-
 					self.step += 1
 
-					# if epoch % 100 == 0:
-					# 	quit()
-
+				# Print log, write to log.txt, update Tensorboard and save model every epoch
+				d_loss, g_loss, summary = self.get_loss(batch_x, z_real_dist)
+				self.print_log(epoch, d_loss, g_loss)
+				self.writer.add_summary(summary, global_step=self.step)
 				self.saver.save(self.sess, save_path=self.saved_model_path, global_step=self.step)
 
 		print("Model Trained!")
 		print("Tensorboard Path: {}".format(self.tensorboard_path))
 		print("Log Path: {}".format(self.log_path + '/log.txt'))
 		print("Saved Model Path: {}".format(self.saved_model_path))
+		print("Video Path: {}".format(video_path))
 		return None
 
 def main():
-	gan = GAN()
+	gan = GANDemo()
 	gan.train()
 
 if __name__ == "__main__":

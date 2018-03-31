@@ -1,0 +1,5 @@
+.DS_Store
+
+# Outputs from demo.py
+results/
+*.mp4
