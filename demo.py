@@ -50,12 +50,12 @@ class GANDemo(object):
 
 		# Networks
 		self.generator = DenseNetwork(
-			nodes_per_layer=[1000, 1000, 1],
+			nodes_per_layer=[128, 128, 1],
 			activations_per_layer=[tf.nn.relu, tf.nn.relu, None],
 			names_per_layer=["generator_dense_1", "generator_dense_2", "generator_output"],
 			network_name="Generator")
 		self.discriminator = DenseNetwork(
-			nodes_per_layer=[1000, 1000, 1],
+			nodes_per_layer=[128, 128, 1],
 			activations_per_layer=[tf.nn.relu, tf.nn.relu, None],
 			names_per_layer=["discriminator_dense_1", "discriminator_dense_2", "discriminator_output"],
 			network_name="Discriminator")
@@ -87,7 +87,7 @@ class GANDemo(object):
 		self.discriminator_variables = [var for var in all_variables if 'discriminator' in var.name]
 		self.discriminator_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.discriminator_loss, var_list=self.discriminator_variables)
 		self.generator_variables = [var for var in all_variables if 'generator' in var.name]
-		self.generator_optimizer = tf.train.AdamOptimizer(learning_rate=0.01).minimize(self.generator_loss, var_list=self.generator_variables)
+		self.generator_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.generator_loss, var_list=self.generator_variables)
 
 		# Things to save in Tensorboard
 		tf.summary.scalar(name="Discriminator Loss", tensor=self.discriminator_loss)
@@ -105,12 +105,12 @@ class GANDemo(object):
 		return None
 		
 	def sample_prior(self, size):
-		# Real prior distribution, in this case just a Gaussian
-		return np.random.randn(size, 1)
+		# Real prior distribution, in this case just a Gaussian with shifted mean
+		return np.random.randn(size, 1) + 3.0
 
 	def sample_latent(self, size):
-		# Latent vector for input to generator, in this case another Gaussian of different mean and variance
-		return np.random.randn(size, 1) * 2.0 + 1.0
+		# Latent vector for input to generator, in this case just a plain Gaussian
+		return np.random.randn(size, 1)
 
 	def create_checkpoint_folders(self, id_no):
 		folder_name = "{}_gan_demo".format(id_no)
@@ -153,9 +153,10 @@ class GANDemo(object):
 		g_dist, = plt.plot([], [], label="Generator Output Distribution")
 		prior_dist, = plt.plot([], [], label="Real Prior Distribution")
 		d_dist, = plt.plot([], [], label="Discriminator Score")
-		#plt.legend(loc=2, frameon=False, fontsize=12)
-		plt.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc=3, ncol=3, mode="expand", borderaxespad=0.)
-		plt.xlim(-5, 5)
+		plt.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc=3, ncol=2, mode="expand", borderaxespad=0., fontsize=10)
+		min_x = -2
+		max_x = 8
+		plt.xlim(min_x, max_x)
 		plt.ylim(-0.1, 1.1)
 
 		video_path = "{}_gan_demo.mp4".format(id_no)
@@ -172,10 +173,10 @@ class GANDemo(object):
 
 					# Get outputs from generator and discriminator
 					fake_prior = self.sess.run(self.fake_prior, feed_dict={self.input: batch_x})
-					scores = self.sess.run(self.output_scores, feed_dict={self.real_prior: np.expand_dims(np.arange(-5, 5, 0.01001), axis=1)})
+					scores = self.sess.run(self.output_scores, feed_dict={self.real_prior: np.expand_dims(np.arange(min_x, max_x, 0.01001), axis=1)})
 
 					# Plot distributions of outputs for video
-					bins = np.linspace(-5, 5, 50)
+					bins = np.linspace(min_x, max_x, 50)
 					
 					fake_prior_y, fake_prior_binedges = np.histogram(fake_prior, bins=bins)
 					fake_prior_bincenters = 0.5 * (fake_prior_binedges[1:] + fake_prior_binedges[:-1])
@@ -187,7 +188,7 @@ class GANDemo(object):
 					
 					g_dist.set_data(bins[1:], fake_prior_y)
 					prior_dist.set_data(bins[1:], prior_y)
-					d_dist.set_data(np.arange(-5, 5, 0.01001), scores)
+					d_dist.set_data(np.arange(min_x, max_x, 0.01001), scores)
 					
 					writer.grab_frame()
 					
