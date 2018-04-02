@@ -114,7 +114,7 @@ class GANDemo(object):
 
 	def create_checkpoint_folders(self, id_no):
 		folder_name = "{}_gan_demo".format(id_no)
-		subfolders = ["tensorboard", "saved_models", "log"]
+		subfolders = ["tensorboard/", "saved_models/", "log/"]
 		paths = ()
 		for subfolder in subfolders:
 			path = os.path.join(self.results_path, folder_name, subfolder)
